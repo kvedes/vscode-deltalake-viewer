@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+  <title>Delta Viewer</title>
+</head>
+<body>
+  <div id="app">
+    <div id="toolbar">
+      <span id="status">Loading...</span>
+      <div id="pagination">
+        <button id="btn-prev" disabled>Previous</button>
+        <span id="page-info"></span>
+        <button id="btn-next" disabled>Next</button>
+      </div>
+    </div>
+    <div id="table-container">
+      <table id="data-table">
+        <thead><tr id="header-row"></tr></thead>
+        <tbody id="body-rows"></tbody>
+      </table>
+    </div>
+  </div>
+  <script src="main.ts"></script>
+</body>
+</html>

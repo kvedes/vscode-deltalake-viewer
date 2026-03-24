@@ -1,0 +1,24 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Node
+node_modules/
+extension/out/
+extension/dist/
+*.vsix
+
+# IDE
+.vscode/
+!.vscode/launch.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test fixtures (generated)
+*.parquet.tmp
+
+data/

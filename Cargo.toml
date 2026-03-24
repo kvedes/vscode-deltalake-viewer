@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/delta-core",
+    "crates/delta-vscode",
+]
+
+[workspace.dependencies]
+arrow = { version = "54", features = ["json"] }
+parquet = { version = "54", features = ["arrow"] }
+deltalake = { version = "0.25", features = ["datafusion"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }

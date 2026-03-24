@@ -1,0 +1,101 @@
+{
+  "name": "delta-viewer",
+  "displayName": "Delta Viewer",
+  "description": "View Delta Lake tables and Parquet files in a tabular webview",
+  "version": "0.1.0",
+  "publisher": "delta-viewer",
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/delta-viewer/delta-viewer"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Data Science",
+    "Other"
+  ],
+  "keywords": [
+    "delta",
+    "delta-lake",
+    "parquet",
+    "data",
+    "table",
+    "viewer"
+  ],
+  "activationEvents": [
+    "onLanguage:parquet",
+    "workspaceContains:**/_delta_log"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "deltaViewer.openParquet",
+        "title": "Open Parquet File",
+        "category": "Delta Viewer"
+      },
+      {
+        "command": "deltaViewer.openDelta",
+        "title": "Open Delta Table",
+        "category": "Delta Viewer"
+      },
+      {
+        "command": "deltaViewer.openRawParquet",
+        "title": "Open as Raw Parquet",
+        "category": "Delta Viewer"
+      }
+    ],
+    "configuration": {
+      "title": "Delta Viewer",
+      "properties": {
+        "deltaViewer.requestTimeout": {
+          "type": "number",
+          "default": 30000,
+          "description": "Timeout in milliseconds for sidecar requests"
+        }
+      }
+    },
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "deltaViewer.openDelta",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ]
+    },
+    "customEditors": [
+      {
+        "viewType": "deltaViewer.parquet",
+        "displayName": "Parquet Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.parquet"
+          }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "vitest run",
+    "package": "vsce package",
+    "package:pre": "npm run compile && npm run test",
+    "vsce:package": "bash ../scripts/package-extension.sh",
+    "vsce:publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  }
+}
