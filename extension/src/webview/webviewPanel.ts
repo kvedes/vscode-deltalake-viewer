@@ -57,11 +57,14 @@ export class DeltaViewerPanel implements vscode.Disposable {
       fileType: this.fileType,
     });
 
-    this.loadData();
-
-    // For delta tables, fetch history and table info in parallel
+    // For delta tables, evict stale sidecar cache before loading
     if (this.fileType === "delta") {
-      this.fetchHistoryAndInfo();
+      this.sidecar.refreshTable(this.filePath).then(() => {
+        this.loadData();
+        this.fetchHistoryAndInfo();
+      });
+    } else {
+      this.loadData();
     }
   }
 
@@ -75,6 +78,7 @@ export class DeltaViewerPanel implements vscode.Disposable {
     const existing = DeltaViewerPanel.panels.get(cacheKey);
     if (existing) {
       existing.panel.reveal();
+      existing.refresh();
       return existing;
     }
 
@@ -86,6 +90,19 @@ export class DeltaViewerPanel implements vscode.Disposable {
     );
     DeltaViewerPanel.panels.set(cacheKey, instance);
     return instance;
+  }
+
+  private async refresh(): Promise<void> {
+    this.knownTotal = undefined;
+    this.currentVersion = undefined;
+    this.cdfMode = false;
+    if (this.fileType === "delta") {
+      await this.sidecar.refreshTable(this.filePath);
+      this.loadData();
+      this.fetchHistoryAndInfo();
+    } else {
+      this.loadData();
+    }
   }
 
   private async loadData(offset = 0, version?: number): Promise<void> {
@@ -178,8 +195,7 @@ export class DeltaViewerPanel implements vscode.Disposable {
   private onMessage(msg: WebviewToHostMessage): void {
     switch (msg.type) {
       case "ready":
-        this.cdfMode = false;
-        this.loadData();
+        this.refresh();
         break;
       case "page":
         if (this.cdfMode && this.currentVersion !== undefined) {
@@ -283,15 +299,14 @@ export class DeltaViewerPanel implements vscode.Disposable {
 }
 
 export class ParquetEditorProvider
-  implements vscode.CustomReadonlyEditorProvider
-{
+  implements vscode.CustomReadonlyEditorProvider {
   constructor(
     private context: vscode.ExtensionContext,
     private sidecar: Sidecar,
-  ) {}
+  ) { }
 
   openCustomDocument(uri: vscode.Uri): vscode.CustomDocument {
-    return { uri, dispose: () => {} };
+    return { uri, dispose: () => { } };
   }
 
   async resolveCustomEditor(
