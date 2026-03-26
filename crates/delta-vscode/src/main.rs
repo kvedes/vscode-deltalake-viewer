@@ -24,14 +24,17 @@ struct TableCacheEntry {
     row_count: Option<usize>,
 }
 
+type TableCacheLock = std::sync::LazyLock<Mutex<LruCache<(String, Option<i64>), TableCacheEntry>>>;
+type CountCacheLock = std::sync::LazyLock<Mutex<HashMap<(String, Option<i64>), usize>>>;
+
 /// LRU cache of loaded Delta tables keyed by `(path, version)`.
 /// Avoids reloading the same table on consecutive page requests.
-static TABLE_CACHE: std::sync::LazyLock<Mutex<LruCache<(String, Option<i64>), TableCacheEntry>>> =
+static TABLE_CACHE: TableCacheLock =
     std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(8).unwrap())));
 
 /// Separate cache for row counts keyed by `(path, version)`.
 /// Survives LRU eviction of the table cache entries.
-static COUNT_CACHE: std::sync::LazyLock<Mutex<HashMap<(String, Option<i64>), usize>>> =
+static COUNT_CACHE: CountCacheLock =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Builds a structured error response from a [`DeltaViewerError`].
@@ -120,12 +123,12 @@ async fn handle_read_streaming(
     let header = Response {
         id: id.to_string(),
         body: ResponseBody::Result {
-            result: ResultPayload::DataHeader {
+            result: Box::new(ResultPayload::DataHeader {
                 schema: result.schema,
                 total_rows: result.total_rows,
                 offset: result.offset,
                 cdf_counts: result.cdf_counts,
-            },
+            }),
         },
     };
     write_response(stdout, &header).await?;
@@ -135,10 +138,10 @@ async fn handle_read_streaming(
         let chunk_resp = Response {
             id: id.to_string(),
             body: ResponseBody::Result {
-                result: ResultPayload::DataChunk {
+                result: Box::new(ResultPayload::DataChunk {
                     rows: chunk.to_vec(),
                     chunk_index,
-                },
+                }),
             },
         };
         write_response(stdout, &chunk_resp).await?;
@@ -149,7 +152,7 @@ async fn handle_read_streaming(
     let done = Response {
         id: id.to_string(),
         body: ResponseBody::Result {
-            result: ResultPayload::DataDone { total_sent },
+            result: Box::new(ResultPayload::DataDone { total_sent }),
         },
     };
     write_response(stdout, &done).await?;
@@ -227,13 +230,13 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
                 Ok(schema) => Response {
                     id,
                     body: ResponseBody::Result {
-                        result: ResultPayload::Data {
+                        result: Box::new(ResultPayload::Data {
                             schema,
                             rows: vec![],
                             total_rows: 0,
                             offset: 0,
                             limit: 0,
-                        },
+                        }),
                     },
                 },
                 Err(e) => error_response(id, e),
@@ -244,7 +247,7 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
                 Ok(result) => Response {
                     id,
                     body: ResponseBody::Result {
-                        result: ResultPayload::from(result),
+                        result: Box::new(ResultPayload::from(result)),
                     },
                 },
                 Err(e) => error_response(id, e),
@@ -255,7 +258,7 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
                 Ok(result) => Response {
                     id,
                     body: ResponseBody::Result {
-                        result: ResultPayload::from(result),
+                        result: Box::new(ResultPayload::from(result)),
                     },
                 },
                 Err(e) => error_response(id, e),
@@ -281,38 +284,38 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
             Some(Response {
                 id,
                 body: ResponseBody::Result {
-                    result: ResultPayload::Data {
+                    result: Box::new(ResultPayload::Data {
                         schema: vec![],
                         rows: vec![],
                         total_rows: 0,
                         offset: 0,
                         limit: 0,
-                    },
+                    }),
                 },
             })
         }
         Command::Ping {} => Some(Response {
             id,
             body: ResponseBody::Result {
-                result: ResultPayload::Data {
+                result: Box::new(ResultPayload::Data {
                     schema: vec![],
                     rows: vec![],
                     total_rows: 0,
                     offset: 0,
                     limit: 0,
-                },
+                }),
             },
         }),
         Command::Shutdown {} => Some(Response {
             id,
             body: ResponseBody::Result {
-                result: ResultPayload::Data {
+                result: Box::new(ResultPayload::Data {
                     schema: vec![],
                     rows: vec![],
                     total_rows: 0,
                     offset: 0,
                     limit: 0,
-                },
+                }),
             },
         }),
     }

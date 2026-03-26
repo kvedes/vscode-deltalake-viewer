@@ -263,7 +263,7 @@ fn test_read_parquet_with_gen_fixture() {
     assert!(responses.len() >= 2, "expected at least header + done");
     let header = &responses[0]["result"];
     assert_eq!(header["type"], "data_header");
-    assert!(header["schema"].as_array().unwrap().len() > 0);
+    assert!(!header["schema"].as_array().unwrap().is_empty());
 
     let done = &responses.last().unwrap()["result"];
     assert_eq!(done["type"], "data_done");

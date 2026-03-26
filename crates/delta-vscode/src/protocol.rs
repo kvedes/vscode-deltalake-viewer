@@ -96,7 +96,7 @@ pub struct Response {
 #[serde(untagged)]
 pub enum ResponseBody {
     /// Successful result.
-    Result { result: ResultPayload },
+    Result { result: Box<ResultPayload> },
     /// Structured error with a machine-readable code and retry hint.
     Error {
         error: String,
@@ -127,7 +127,7 @@ pub enum ResultPayload {
         entries: Vec<delta_core::HistoryEntry>,
     },
     /// Table metadata and properties.
-    TableInfo(delta_core::TableInfoResult),
+    TableInfo(Box<delta_core::TableInfoResult>),
 
     /// First message of a streaming read — carries schema and total row count.
     DataHeader {
@@ -170,6 +170,6 @@ impl From<delta_core::HistoryResult> for ResultPayload {
 
 impl From<delta_core::TableInfoResult> for ResultPayload {
     fn from(r: delta_core::TableInfoResult) -> Self {
-        ResultPayload::TableInfo(r)
+        ResultPayload::TableInfo(Box::new(r))
     }
 }
