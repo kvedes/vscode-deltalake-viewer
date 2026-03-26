@@ -14,7 +14,7 @@ pub fn read_parquet_schema(path: &Path) -> Result<Vec<ColumnDef>> {
     let file = std::fs::File::open(path)?;
     let reader = ParquetRecordBatchReaderBuilder::try_new(file)?;
     let schema = reader.schema();
-    Ok(arrow_schema_to_columns(&schema))
+    Ok(arrow_schema_to_columns(schema))
 }
 
 /// Read paginated rows from a Parquet file.

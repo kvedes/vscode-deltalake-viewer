@@ -97,7 +97,7 @@ fn array_value_to_json(array: &dyn Array, idx: usize) -> Value {
         }
         DataType::Timestamp(_, _) => {
             // Use the display representation which includes timezone handling
-            Value::String(format!("{}", array_to_string(array, idx)))
+            Value::String(array_to_string(array, idx).to_string())
         }
         DataType::List(_) => {
             let arr = array.as_any().downcast_ref::<ListArray>().unwrap();
@@ -116,7 +116,7 @@ fn array_value_to_json(array: &dyn Array, idx: usize) -> Value {
             }
             Value::Object(map)
         }
-        _ => Value::String(format!("{}", array_to_string(array, idx))),
+        _ => Value::String(array_to_string(array, idx).to_string()),
     }
 }
 
