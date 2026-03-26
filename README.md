@@ -14,18 +14,69 @@ A VS Code extension for viewing Delta Lake tables and Parquet files as interacti
 ## Architecture
 
 ```
-VS Code Extension (TypeScript)
-  └─ spawns ──▸ Sidecar binary (Rust, stdin/stdout JSON protocol)
-                  └─ uses ──▸ delta-core library (deltalake + datafusion + arrow)
+┌────────────────────────────────────────────────────────────┐
+│  VS Code                                                   │
+│                                                            │
+│  ┌──────────┐  postMessage   ┌──────────────────────────┐  │
+│  │  Webview  │◄─────────────►│  Extension Host (TS)     │  │
+│  │  (React)  │               │                          │  │
+│  └──────────┘               │  Sidecar class manages   │  │
+│                              │  the Rust process         │  │
+│                              └────────┬─────────────────┘  │
+│                                       │ stdin/stdout       │
+│                                       │ (line-delimited    │
+│                                       │  JSON)             │
+│                              ┌────────▼─────────────────┐  │
+│                              │  delta-vscode (Rust)     │  │
+│                              │  Long-lived sidecar      │  │
+│                              │  process with LRU table  │  │
+│                              │  cache                   │  │
+│                              │                          │  │
+│                              │  └─ delta-core library   │  │
+│                              │     (deltalake,          │  │
+│                              │      datafusion, arrow)  │  │
+│                              └──────────────────────────┘  │
+└────────────────────────────────────────────────────────────┘
 ```
 
-The project is a Cargo workspace with three crates and a VS Code extension:
+The project is a Cargo workspace with two crates and a VS Code extension:
 
 | Path | Description |
 |---|---|
 | `crates/delta-core` | Core library — Delta/Parquet reading, pagination, schema conversion |
 | `crates/delta-vscode` | Sidecar binary that communicates with the extension over stdio |
 | `extension/` | VS Code extension — webview UI, sidecar lifecycle, commands |
+
+### Sidecar process
+
+The Rust binary runs as a **long-lived sidecar process**, not a one-off CLI tool. The TypeScript `Sidecar` class (`extension/src/sidecar.ts`) lazily spawns it on first use and keeps it alive for the lifetime of the extension. Communication happens over stdin/stdout using newline-delimited JSON — each request carries a unique `id` that is echoed back on every response for correlation.
+
+A health-check ping runs every 10 seconds. If the process dies it is automatically restarted (up to 3 attempts).
+
+### Wire protocol
+
+The protocol (`crates/delta-vscode/src/protocol.rs`, `extension/src/protocol.ts`) supports two response patterns:
+
+**Simple request → single response** — used by `get_schema`, `get_history`, `get_table_info`, `ping`, `refresh_table`, and `shutdown`.
+
+**Streaming request → multiple responses** — used by `read_delta`, `read_parquet`, and `read_cdf` for large result sets. The sidecar sends:
+1. `data_header` — schema, total row count, CDF counts
+2. `data_chunk` (repeated) — up to 200 rows per chunk
+3. `data_done` — sentinel with the total number of rows sent
+
+This streaming approach avoids serializing the entire result set into a single JSON message.
+
+### Caching
+
+The sidecar maintains two caches to avoid repeated I/O across page requests:
+- **Table cache** — an LRU cache (capacity 8) of loaded `DeltaTable` objects keyed by `(path, version)`
+- **Count cache** — a `HashMap` of row counts keyed by `(path, version)`, surviving LRU eviction of the table cache
+
+The `refresh_table` command evicts all cache entries for a given path.
+
+### Error handling
+
+Errors are returned as structured JSON with a machine-readable `code` (e.g., `table_not_found`, `io_error`, `query_error`) and a `retryable` flag so the frontend can decide whether to retry or show a message to the user.
 
 ## Prerequisites
 

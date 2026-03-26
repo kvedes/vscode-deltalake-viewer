@@ -10,3 +10,4 @@ esbuild.mjs
 **/*.test.ts
 __tests__/**
 icon.svg
+!bin/**
