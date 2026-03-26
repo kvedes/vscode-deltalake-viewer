@@ -1,0 +1,190 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-sidecar:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+            binary: delta-vscode
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64
+            binary: delta-vscode
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            platform: darwin-x64
+            binary: delta-vscode
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: darwin-arm64
+            binary: delta-vscode
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: win32-x64
+            binary: delta-vscode.exe
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            platform: win32-arm64
+            binary: delta-vscode.exe
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.platform == 'linux-arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}
+
+      - name: Build sidecar
+        run: cargo build --release --target ${{ matrix.target }} -p delta-vscode
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.platform }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+  package:
+    needs: build-sidecar
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux-x64
+            vsce_target: linux-x64
+            bin_dir: linux-x64
+            binary: delta-vscode
+          - platform: linux-arm64
+            vsce_target: linux-arm64
+            bin_dir: linux-arm64
+            binary: delta-vscode
+          - platform: darwin-x64
+            vsce_target: darwin-x64
+            bin_dir: darwin-x64
+            binary: delta-vscode
+          - platform: darwin-arm64
+            vsce_target: darwin-arm64
+            bin_dir: darwin-arm64
+            binary: delta-vscode
+          - platform: win32-x64
+            vsce_target: win32-x64
+            bin_dir: win32-x64
+            binary: delta-vscode.exe
+          - platform: win32-arm64
+            vsce_target: win32-arm64
+            bin_dir: win32-arm64
+            binary: delta-vscode.exe
+
+    name: Package ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install extension dependencies
+        working-directory: extension
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: extension
+        run: npm run compile
+
+      - name: Download sidecar binary
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-${{ matrix.platform }}
+          path: extension/bin/${{ matrix.bin_dir }}
+
+      - name: Make binary executable
+        if: matrix.platform != 'win32-x64' && matrix.platform != 'win32-arm64'
+        run: chmod +x extension/bin/${{ matrix.bin_dir }}/${{ matrix.binary }}
+
+      - name: Package VSIX
+        working-directory: extension
+        run: npx vsce package --target ${{ matrix.vsce_target }} -o ../delta-viewer-${{ matrix.platform }}.vsix
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.platform }}
+          path: delta-viewer-${{ matrix.platform }}.vsix
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: Create Release
+
+    steps:
+      - name: Download all VSIX artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: "*.vsix"
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish to Marketplace
+
+    steps:
+      - name: Download all VSIX artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          for vsix in *.vsix; do
+            echo "Publishing $vsix"
+            vsce publish --packagePath "$vsix"
+          done
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
