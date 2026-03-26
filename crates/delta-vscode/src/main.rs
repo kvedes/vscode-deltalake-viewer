@@ -34,8 +34,7 @@ static TABLE_CACHE: TableCacheLock =
 
 /// Separate cache for row counts keyed by `(path, version)`.
 /// Survives LRU eviction of the table cache entries.
-static COUNT_CACHE: CountCacheLock =
-    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static COUNT_CACHE: CountCacheLock = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Builds a structured error response from a [`DeltaViewerError`].
 fn error_response(id: String, e: DeltaViewerError) -> Response {
