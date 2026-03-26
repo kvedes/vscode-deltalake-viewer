@@ -24,10 +24,10 @@ This project was built with AI assistance using Claude Code.
 │  VS Code                                                   │
 │                                                            │
 │  ┌──────────┐  postMessage   ┌──────────────────────────┐  │
-│  │  Webview  │◄─────────────►│  Extension Host (TS)     │  │
-│  │  (React)  │               │                          │  │
-│  └──────────┘               │  Sidecar class manages   │  │
-│                              │  the Rust process         │  │
+│  │  Webview │◄──────────────►│  Extension Host (TS)     │  │
+│  │  (React) │                │                          │  │
+│  └──────────┘                │  Sidecar class manages   │  │
+│                              │  the Rust process        │  │
 │                              └────────┬─────────────────┘  │
 │                                       │ stdin/stdout       │
 │                                       │ (line-delimited    │
