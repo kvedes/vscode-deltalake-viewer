@@ -25,3 +25,4 @@ Thumbs.db
 *.parquet.tmp
 
 data/
+assets/
