@@ -3,14 +3,20 @@ use std::collections::HashMap;
 use arrow::datatypes::{DataType, Schema};
 use serde::{Deserialize, Serialize};
 
+/// Definition of a single column, serializable for the VS Code frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnDef {
+    /// Column name.
     pub name: String,
+    /// Human-readable data type string (e.g., "Int64", "List<Struct<x: Int32>>").
     pub data_type: String,
+    /// Whether the column allows null values.
     pub nullable: bool,
+    /// Arbitrary key-value metadata attached to the column.
     pub metadata: HashMap<String, String>,
 }
 
+/// Converts an Arrow [`Schema`] into a list of [`ColumnDef`]s.
 pub fn arrow_schema_to_columns(schema: &Schema) -> Vec<ColumnDef> {
     schema
         .fields()
@@ -24,6 +30,8 @@ pub fn arrow_schema_to_columns(schema: &Schema) -> Vec<ColumnDef> {
         .collect()
 }
 
+/// Formats an Arrow [`DataType`] into a human-readable string, recursing into
+/// nested types like `List`, `Struct`, and `Map`.
 fn format_data_type(dt: &DataType) -> String {
     match dt {
         DataType::List(f) => format!("List<{}>", format_data_type(f.data_type())),

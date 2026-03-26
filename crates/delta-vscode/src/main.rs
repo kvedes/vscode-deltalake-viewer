@@ -1,3 +1,9 @@
+//! VS Code sidecar binary for Delta Lake and Parquet file operations.
+//!
+//! Communicates with the VS Code extension over stdin/stdout using a
+//! newline-delimited JSON protocol. Supports streaming large result sets
+//! in chunks and caches loaded tables to avoid repeated I/O.
+
 mod protocol;
 
 use std::collections::HashMap;
@@ -11,19 +17,26 @@ use lru::LruCache;
 use protocol::{Command, Request, Response, ResponseBody, ResultPayload};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+/// Cached Delta table along with its precomputed row count.
 struct TableCacheEntry {
     table: DeltaTable,
+    /// Lazily populated after the first row-count query.
     row_count: Option<usize>,
 }
 
+/// LRU cache of loaded Delta tables keyed by `(path, version)`.
+/// Avoids reloading the same table on consecutive page requests.
 static TABLE_CACHE: std::sync::LazyLock<Mutex<LruCache<(String, Option<i64>), TableCacheEntry>>> =
     std::sync::LazyLock::new(|| {
         Mutex::new(LruCache::new(NonZeroUsize::new(8).unwrap()))
     });
 
+/// Separate cache for row counts keyed by `(path, version)`.
+/// Survives LRU eviction of the table cache entries.
 static COUNT_CACHE: std::sync::LazyLock<Mutex<HashMap<(String, Option<i64>), usize>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Builds a structured error response from a [`DeltaViewerError`].
 fn error_response(id: String, e: DeltaViewerError) -> Response {
     let code = e.error_code();
     Response {
@@ -84,8 +97,10 @@ async fn main() {
     }
 }
 
+/// Maximum number of rows per streaming data chunk.
 const CHUNK_SIZE: usize = 200;
 
+/// Serializes a response as JSON followed by a newline and flushes stdout.
 async fn write_response(
     stdout: &mut tokio::io::Stdout,
     response: &Response,
@@ -96,6 +111,8 @@ async fn write_response(
     stdout.flush().await
 }
 
+/// Streams a [`ReadResult`](delta_core::ReadResult) to the extension as a
+/// header, zero or more data chunks, and a done sentinel.
 async fn handle_read_streaming(
     id: &str,
     result: delta_core::ReadResult,
@@ -285,6 +302,11 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
     }
 }
 
+/// Reads paginated rows from a Delta table, using the table and row-count caches
+/// to avoid redundant I/O across page requests.
+///
+/// Cache resolution order for `total_rows`: `known_total` parameter > table cache
+/// entry > count cache > fresh computation via DataFusion.
 async fn handle_read_delta(
     path: &str,
     offset: usize,

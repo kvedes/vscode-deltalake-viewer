@@ -24,6 +24,9 @@ pub fn batches_to_json_rows(batches: &[RecordBatch]) -> Result<Vec<Map<String, V
     Ok(rows)
 }
 
+/// Extracts a single value from an Arrow array at the given index and converts
+/// it to a [`serde_json::Value`]. Handles all common Arrow data types including
+/// nested lists and structs.
 fn array_value_to_json(array: &dyn Array, idx: usize) -> Value {
     if array.is_null(idx) {
         return Value::Null;
@@ -117,10 +120,14 @@ fn array_value_to_json(array: &dyn Array, idx: usize) -> Value {
     }
 }
 
+/// Formats an Arrow array value at the given index as a display string.
+/// Falls back to `"?"` if formatting fails.
 fn array_to_string(array: &dyn Array, idx: usize) -> String {
     arrow::util::display::array_value_to_string(array, idx).unwrap_or_else(|_| "?".to_string())
 }
 
+/// Helper macro that downcasts an Arrow array to a concrete numeric type and
+/// converts the value at `$idx` into a `serde_json::Value::Number`.
 macro_rules! json_number {
     ($array:expr, $arr_type:ty, $idx:expr) => {{
         let arr = $array.as_any().downcast_ref::<$arr_type>().unwrap();

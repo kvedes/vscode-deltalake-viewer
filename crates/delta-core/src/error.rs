@@ -1,24 +1,40 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// Categorized error codes returned to the VS Code extension.
+///
+/// These codes let the frontend decide how to present errors to the user
+/// (e.g., showing a "table not found" message vs. offering a retry button).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
+    /// The specified Delta table path does not exist or is not a Delta table.
     TableNotFound,
+    /// The requested table version does not exist.
     VersionNotFound,
+    /// Filesystem permission denied when accessing the table.
     PermissionDenied,
+    /// The Delta transaction log is corrupted or unreadable.
     CorruptLog,
+    /// A general I/O error occurred (e.g., network or disk failure).
     IoError,
+    /// An error occurred during query execution (Arrow, Parquet, or DataFusion).
     QueryError,
+    /// An unexpected internal error.
     Internal,
 }
 
 impl ErrorCode {
+    /// Returns `true` if the error is transient and the operation may succeed on retry.
     pub fn is_retryable(self) -> bool {
         matches!(self, ErrorCode::IoError | ErrorCode::Internal)
     }
 }
 
+/// Unified error type for all delta-core operations.
+///
+/// Wraps errors from the Parquet, Arrow, Delta, DataFusion, JSON, and I/O layers
+/// and maps them to an [`ErrorCode`] for structured error responses.
 #[derive(Error, Debug)]
 pub enum DeltaViewerError {
     #[error("Parquet error: {0}")]
@@ -44,6 +60,7 @@ pub enum DeltaViewerError {
 }
 
 impl DeltaViewerError {
+    /// Maps this error to a structured [`ErrorCode`] based on the underlying cause.
     pub fn error_code(&self) -> ErrorCode {
         match self {
             DeltaViewerError::Parquet(_)
@@ -71,6 +88,7 @@ impl DeltaViewerError {
     }
 }
 
+/// Convenience alias for results using [`DeltaViewerError`].
 pub type Result<T> = std::result::Result<T, DeltaViewerError>;
 
 #[cfg(test)]
