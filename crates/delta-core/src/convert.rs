@@ -83,17 +83,17 @@ fn array_value_to_json(array: &dyn Array, idx: usize) -> Value {
         }
         DataType::Date32 => {
             let arr = array.as_any().downcast_ref::<Date32Array>().unwrap();
-            Value::String(arr.value_as_date(idx).map_or_else(
-                || "null".to_string(),
-                |d| d.to_string(),
-            ))
+            Value::String(
+                arr.value_as_date(idx)
+                    .map_or_else(|| "null".to_string(), |d| d.to_string()),
+            )
         }
         DataType::Date64 => {
             let arr = array.as_any().downcast_ref::<Date64Array>().unwrap();
-            Value::String(arr.value_as_datetime(idx).map_or_else(
-                || "null".to_string(),
-                |d| d.to_string(),
-            ))
+            Value::String(
+                arr.value_as_datetime(idx)
+                    .map_or_else(|| "null".to_string(), |d| d.to_string()),
+            )
         }
         DataType::Timestamp(_, _) => {
             // Use the display representation which includes timezone handling
@@ -215,12 +215,17 @@ mod tests {
             Arc::new(StringArray::from(vec!["hello", "world"])) as _,
         )]);
 
-        let batch =
-            RecordBatch::try_new(Arc::new(schema), vec![Arc::new(list_arr), Arc::new(struct_arr)])
-                .unwrap();
+        let batch = RecordBatch::try_new(
+            Arc::new(schema),
+            vec![Arc::new(list_arr), Arc::new(struct_arr)],
+        )
+        .unwrap();
 
         let rows = batches_to_json_rows(&[batch]).unwrap();
-        assert_eq!(rows[0]["vals"], Value::Array(vec![Value::Number(1.into()), Value::Number(2.into())]));
+        assert_eq!(
+            rows[0]["vals"],
+            Value::Array(vec![Value::Number(1.into()), Value::Number(2.into())])
+        );
         assert_eq!(rows[0]["s"]["x"], Value::String("hello".to_string()));
     }
 
@@ -232,8 +237,7 @@ mod tests {
             false,
         )]);
         let ts_arr = TimestampMillisecondArray::from(vec![1_700_000_000_000i64]);
-        let batch =
-            RecordBatch::try_new(Arc::new(schema), vec![Arc::new(ts_arr)]).unwrap();
+        let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(ts_arr)]).unwrap();
 
         let rows = batches_to_json_rows(&[batch]).unwrap();
         // Should be a string representation
@@ -244,8 +248,7 @@ mod tests {
     fn test_batches_to_json_binary() {
         let schema = Schema::new(vec![Field::new("bin", DataType::Binary, false)]);
         let bin_arr = BinaryArray::from(vec![&[1u8, 2, 3][..]]);
-        let batch =
-            RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bin_arr)]).unwrap();
+        let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bin_arr)]).unwrap();
 
         let rows = batches_to_json_rows(&[batch]).unwrap();
         assert_eq!(rows[0]["bin"], Value::String("<3 bytes>".to_string()));

@@ -60,21 +60,13 @@ pub enum Command {
         limit: usize,
     },
     /// Return the schema (column definitions) for a Delta table or Parquet file.
-    GetSchema {
-        path: String,
-    },
+    GetSchema { path: String },
     /// Return the full commit history of a Delta table.
-    GetHistory {
-        path: String,
-    },
+    GetHistory { path: String },
     /// Return metadata and properties of a Delta table.
-    GetTableInfo {
-        path: String,
-    },
+    GetTableInfo { path: String },
     /// Evict all cached data for a table so the next read sees fresh state.
-    RefreshTable {
-        path: String,
-    },
+    RefreshTable { path: String },
     /// Health-check command; returns an empty success response.
     Ping {},
     /// Gracefully shut down the sidecar process.
@@ -104,9 +96,7 @@ pub struct Response {
 #[serde(untagged)]
 pub enum ResponseBody {
     /// Successful result.
-    Result {
-        result: ResultPayload,
-    },
+    Result { result: ResultPayload },
     /// Structured error with a machine-readable code and retry hint.
     Error {
         error: String,
@@ -174,9 +164,7 @@ impl From<delta_core::ReadResult> for ResultPayload {
 
 impl From<delta_core::HistoryResult> for ResultPayload {
     fn from(r: delta_core::HistoryResult) -> Self {
-        ResultPayload::History {
-            entries: r.entries,
-        }
+        ResultPayload::History { entries: r.entries }
     }
 }
 

@@ -124,7 +124,11 @@ fn test_read_delta_valid() {
         }
     }));
 
-    assert!(responses.len() >= 2, "expected at least header + done: got {}", responses.len());
+    assert!(
+        responses.len() >= 2,
+        "expected at least header + done: got {}",
+        responses.len()
+    );
 
     // First response should be data_header
     let header = &responses[0]["result"];
@@ -210,7 +214,10 @@ fn test_read_delta_invalid_path_structured_error() {
 
     assert!(resp.get("error").is_some(), "expected error: {resp}");
     assert!(resp.get("code").is_some(), "expected error code: {resp}");
-    assert!(resp.get("retryable").is_some(), "expected retryable: {resp}");
+    assert!(
+        resp.get("retryable").is_some(),
+        "expected retryable: {resp}"
+    );
 }
 
 #[test]

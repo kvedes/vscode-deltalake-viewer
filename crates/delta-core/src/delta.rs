@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use deltalake::delta_datafusion::DataFusionMixins;
 use deltalake::datafusion::logical_expr::LogicalPlanBuilder;
+use deltalake::delta_datafusion::DataFusionMixins;
 use deltalake::{DeltaTable, DeltaTableBuilder};
 
 use crate::convert::batches_to_json_rows;
@@ -30,9 +30,7 @@ pub async fn read_delta_schema(path: &Path) -> Result<Vec<ColumnDef>> {
 /// Count total rows in a Delta table using DataFusion.
 pub async fn count_delta_rows(table: &DeltaTable) -> Result<usize> {
     let ctx = deltalake::datafusion::prelude::SessionContext::new();
-    let provider = deltalake::datafusion::datasource::provider_as_source(
-        Arc::new(table.clone()),
-    );
+    let provider = deltalake::datafusion::datasource::provider_as_source(Arc::new(table.clone()));
     let plan = LogicalPlanBuilder::scan("delta", provider, None)?.build()?;
     let df = ctx.execute_logical_plan(plan).await?;
     let count = df.count().await?;
@@ -49,9 +47,7 @@ pub async fn query_delta_table(
     let columns = arrow_schema_to_columns(&schema);
 
     let ctx = deltalake::datafusion::prelude::SessionContext::new();
-    let provider = deltalake::datafusion::datasource::provider_as_source(
-        Arc::new(table.clone()),
-    );
+    let provider = deltalake::datafusion::datasource::provider_as_source(Arc::new(table.clone()));
     let plan = LogicalPlanBuilder::scan("delta", provider, None)?.build()?;
     let df = ctx.execute_logical_plan(plan).await?;
 
@@ -95,8 +91,8 @@ pub async fn read_delta_cdf(
     offset: usize,
     limit: usize,
 ) -> Result<ReadResult> {
-    use deltalake::datafusion::prelude::*;
     use deltalake::datafusion::functions_aggregate::expr_fn::count;
+    use deltalake::datafusion::prelude::*;
     use deltalake::delta_datafusion::DeltaCdfTableProvider;
 
     let table = load_delta_table(path, Some(end_version)).await?;
@@ -116,10 +112,7 @@ pub async fn read_delta_cdf(
     // Compute counts by _change_type in a single aggregation
     let counts_df = df
         .clone()
-        .aggregate(
-            vec![col("_change_type")],
-            vec![count(lit(1)).alias("cnt")],
-        )?;
+        .aggregate(vec![col("_change_type")], vec![count(lit(1)).alias("cnt")])?;
     let count_batches = counts_df.collect().await?;
 
     let mut cdf_counts = crate::CdfCounts::default();
@@ -141,9 +134,18 @@ pub async fn read_delta_cdf(
             let ct = type_col.value(i);
             let n = cnt_col.value(i) as usize;
             match ct {
-                "insert" => { cdf_counts.inserts += n; total_rows += n; }
-                "update_postimage" => { cdf_counts.updates += n; total_rows += n; }
-                "delete" => { cdf_counts.deletes += n; total_rows += n; }
+                "insert" => {
+                    cdf_counts.inserts += n;
+                    total_rows += n;
+                }
+                "update_postimage" => {
+                    cdf_counts.updates += n;
+                    total_rows += n;
+                }
+                "delete" => {
+                    cdf_counts.deletes += n;
+                    total_rows += n;
+                }
                 _ => {} // update_preimage excluded from total
             }
         }
@@ -244,12 +246,14 @@ pub async fn get_delta_table_info(path: &Path) -> Result<TableInfoResult> {
         .filter_map(|(k, v)| v.as_ref().map(|val| (k.clone(), val.clone())))
         .collect();
 
-    let reader_features = protocol.reader_features.as_ref().map(|features| {
-        features.iter().map(|f| f.to_string()).collect::<Vec<_>>()
-    });
-    let writer_features = protocol.writer_features.as_ref().map(|features| {
-        features.iter().map(|f| f.to_string()).collect::<Vec<_>>()
-    });
+    let reader_features = protocol
+        .reader_features
+        .as_ref()
+        .map(|features| features.iter().map(|f| f.to_string()).collect::<Vec<_>>());
+    let writer_features = protocol
+        .writer_features
+        .as_ref()
+        .map(|features| features.iter().map(|f| f.to_string()).collect::<Vec<_>>());
 
     Ok(TableInfoResult {
         name,

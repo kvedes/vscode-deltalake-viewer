@@ -131,9 +131,8 @@ mod tests {
 
     #[test]
     fn test_error_code_query() {
-        let err = DeltaViewerError::Arrow(arrow::error::ArrowError::ComputeError(
-            "bad compute".into(),
-        ));
+        let err =
+            DeltaViewerError::Arrow(arrow::error::ArrowError::ComputeError("bad compute".into()));
         assert_eq!(err.error_code(), ErrorCode::QueryError);
         assert!(!err.error_code().is_retryable());
     }

@@ -27,9 +27,7 @@ struct TableCacheEntry {
 /// LRU cache of loaded Delta tables keyed by `(path, version)`.
 /// Avoids reloading the same table on consecutive page requests.
 static TABLE_CACHE: std::sync::LazyLock<Mutex<LruCache<(String, Option<i64>), TableCacheEntry>>> =
-    std::sync::LazyLock::new(|| {
-        Mutex::new(LruCache::new(NonZeroUsize::new(8).unwrap()))
-    });
+    std::sync::LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(8).unwrap())));
 
 /// Separate cache for row counts keyed by `(path, version)`.
 /// Survives LRU eviction of the table cache entries.
@@ -164,32 +162,50 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
     let id = req.id.clone();
 
     match req.command {
-        Command::ReadParquet { path, offset, limit } => {
-            match delta_core::parquet::read_parquet(Path::new(&path), offset, limit) {
-                Ok(result) => {
-                    if let Err(e) = handle_read_streaming(&id, result, stdout).await {
-                        eprintln!("Streaming write error: {e}");
-                    }
-                    None
+        Command::ReadParquet {
+            path,
+            offset,
+            limit,
+        } => match delta_core::parquet::read_parquet(Path::new(&path), offset, limit) {
+            Ok(result) => {
+                if let Err(e) = handle_read_streaming(&id, result, stdout).await {
+                    eprintln!("Streaming write error: {e}");
                 }
-                Err(e) => Some(error_response(id, e)),
+                None
             }
-        }
-        Command::ReadDelta { path, offset, limit, version, known_total } => {
-            match handle_read_delta(&path, offset, limit, version, known_total).await {
-                Ok(result) => {
-                    if let Err(e) = handle_read_streaming(&id, result, stdout).await {
-                        eprintln!("Streaming write error: {e}");
-                    }
-                    None
+            Err(e) => Some(error_response(id, e)),
+        },
+        Command::ReadDelta {
+            path,
+            offset,
+            limit,
+            version,
+            known_total,
+        } => match handle_read_delta(&path, offset, limit, version, known_total).await {
+            Ok(result) => {
+                if let Err(e) = handle_read_streaming(&id, result, stdout).await {
+                    eprintln!("Streaming write error: {e}");
                 }
-                Err(e) => Some(error_response(id, e)),
+                None
             }
-        }
-        Command::ReadCdf { path, start_version, end_version, offset, limit } => {
+            Err(e) => Some(error_response(id, e)),
+        },
+        Command::ReadCdf {
+            path,
+            start_version,
+            end_version,
+            offset,
+            limit,
+        } => {
             match delta_core::delta::read_delta_cdf(
-                Path::new(&path), start_version, end_version, offset, limit,
-            ).await {
+                Path::new(&path),
+                start_version,
+                end_version,
+                offset,
+                limit,
+            )
+            .await
+            {
                 Ok(result) => {
                     if let Err(e) = handle_read_streaming(&id, result, stdout).await {
                         eprintln!("Streaming write error: {e}");
@@ -223,8 +239,8 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
                 Err(e) => error_response(id, e),
             })
         }
-        Command::GetHistory { path } => {
-            Some(match delta_core::delta::get_delta_history(Path::new(&path)).await {
+        Command::GetHistory { path } => Some(
+            match delta_core::delta::get_delta_history(Path::new(&path)).await {
                 Ok(result) => Response {
                     id,
                     body: ResponseBody::Result {
@@ -232,10 +248,10 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
                     },
                 },
                 Err(e) => error_response(id, e),
-            })
-        }
-        Command::GetTableInfo { path } => {
-            Some(match delta_core::delta::get_delta_table_info(Path::new(&path)).await {
+            },
+        ),
+        Command::GetTableInfo { path } => Some(
+            match delta_core::delta::get_delta_table_info(Path::new(&path)).await {
                 Ok(result) => Response {
                     id,
                     body: ResponseBody::Result {
@@ -243,8 +259,8 @@ async fn handle_request(req: Request, stdout: &mut tokio::io::Stdout) -> Option<
                     },
                 },
                 Err(e) => error_response(id, e),
-            })
-        }
+            },
+        ),
         Command::RefreshTable { path } => {
             // Evict all cache entries for this path (all versions)
             {
