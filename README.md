@@ -2,6 +2,12 @@
 
 A VS Code extension for viewing Delta Lake tables and Parquet files as interactive, scrollable tables.
 
+
+## Acknowledgements
+
+This project was built with AI assistance using Claude Code.
+
+
 ## Features
 
 - **Parquet file viewing** — open any `.parquet` file directly in VS Code
