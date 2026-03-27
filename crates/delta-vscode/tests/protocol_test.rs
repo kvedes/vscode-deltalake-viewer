@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Once;
 
 fn sidecar_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_delta-vscode"))
@@ -12,6 +13,67 @@ fn testdelta_path() -> PathBuf {
         .join("..")
         .join("data")
         .join("testdelta")
+}
+
+static INIT_FIXTURES: Once = Once::new();
+
+/// Ensure the test Delta table fixture exists at data/testdelta/.
+/// Uses std::sync::Once so it only runs once per test binary invocation.
+fn ensure_fixtures() {
+    INIT_FIXTURES.call_once(|| {
+        let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+        rt.block_on(async {
+            create_test_delta_table().await;
+        });
+    });
+}
+
+async fn create_test_delta_table() {
+    use arrow::array::{Int32Array, StringArray};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use deltalake::operations::DeltaOps;
+    use std::sync::Arc;
+
+    let path = testdelta_path();
+
+    // Skip if already populated
+    if path.join("_delta_log").exists() {
+        return;
+    }
+
+    std::fs::create_dir_all(&path).expect("failed to create data/testdelta directory");
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("name", DataType::Utf8, false),
+        Field::new("value", DataType::Int32, true),
+    ]));
+
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5])),
+            Arc::new(StringArray::from(vec![
+                "alice", "bob", "charlie", "diana", "eve",
+            ])),
+            Arc::new(Int32Array::from(vec![
+                Some(10),
+                Some(20),
+                None,
+                Some(40),
+                Some(50),
+            ])),
+        ],
+    )
+    .expect("failed to create record batch");
+
+    let ops = DeltaOps::try_from_uri(path.to_string_lossy())
+        .await
+        .expect("failed to create DeltaOps");
+    ops.write(vec![batch])
+        .await
+        .expect("failed to write Delta table fixture");
 }
 
 struct SidecarProcess {
@@ -111,6 +173,7 @@ impl Drop for SidecarProcess {
 
 #[test]
 fn test_read_delta_valid() {
+    ensure_fixtures();
     let mut sidecar = SidecarProcess::spawn();
     let path = testdelta_path();
 
@@ -144,6 +207,7 @@ fn test_read_delta_valid() {
 
 #[test]
 fn test_get_history() {
+    ensure_fixtures();
     let mut sidecar = SidecarProcess::spawn();
     let path = testdelta_path();
 
@@ -163,6 +227,7 @@ fn test_get_history() {
 
 #[test]
 fn test_get_table_info() {
+    ensure_fixtures();
     let mut sidecar = SidecarProcess::spawn();
     let path = testdelta_path();
 
@@ -222,31 +287,34 @@ fn test_read_delta_invalid_path_structured_error() {
 
 #[test]
 fn test_read_parquet_with_gen_fixture() {
-    // Generate a test parquet file using gen-test-parquet
-    let gen_binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("target")
-        .join("debug")
-        .join("gen-test-parquet");
-
-    if !gen_binary.exists() {
-        // Skip if binary not built
-        eprintln!("gen-test-parquet not found, skipping test");
-        return;
-    }
+    use arrow::array::{Int32Array, StringArray};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use parquet::arrow::ArrowWriter;
+    use std::sync::Arc;
 
     let tmpdir = tempfile::tempdir().unwrap();
     let parquet_path = tmpdir.path().join("test.parquet");
 
-    let status = Command::new(&gen_binary)
-        .arg(parquet_path.to_str().unwrap())
-        .status();
+    // Generate a test parquet file inline
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("label", DataType::Utf8, false),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Int32Array::from(vec![1, 2, 3])),
+            Arc::new(StringArray::from(vec!["a", "b", "c"])),
+        ],
+    )
+    .expect("failed to create batch");
 
-    if status.is_err() || !status.unwrap().success() {
-        eprintln!("gen-test-parquet failed, skipping test");
-        return;
-    }
+    let file = std::fs::File::create(&parquet_path).expect("failed to create parquet file");
+    let mut writer =
+        ArrowWriter::try_new(file, schema, None).expect("failed to create ArrowWriter");
+    writer.write(&batch).expect("failed to write batch");
+    writer.close().expect("failed to close writer");
 
     let mut sidecar = SidecarProcess::spawn();
 
@@ -291,6 +359,7 @@ fn test_shutdown() {
 
 #[test]
 fn test_read_delta_with_version() {
+    ensure_fixtures();
     let mut sidecar = SidecarProcess::spawn();
     let path = testdelta_path();
 

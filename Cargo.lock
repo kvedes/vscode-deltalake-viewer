@@ -1235,10 +1235,12 @@ dependencies = [
 name = "delta-vscode"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "assert_cmd",
  "delta-core",
  "deltalake",
  "lru",
+ "parquet",
  "serde",
  "serde_json",
  "tempfile",
