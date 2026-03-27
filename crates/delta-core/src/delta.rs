@@ -11,9 +11,26 @@ use crate::error::Result;
 use crate::schema::{arrow_schema_to_columns, ColumnDef};
 use crate::{HistoryEntry, HistoryResult, ReadResult, TableInfoResult};
 
+/// Convert a filesystem path to a URI string suitable for `DeltaTableBuilder::from_uri`.
+///
+/// On Windows, `Path::to_string_lossy()` produces backslash-separated paths like
+/// `C:\Users\foo\table`, but the `object_store` crate (used internally by delta-rs)
+/// requires a proper `file://` URI. Backslashes in a URI are not valid path separators
+/// and cause file-resolution failures when DataFusion opens Parquet files during
+/// offset/limit pagination queries.
+fn path_to_delta_uri(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    if s.contains('\\') {
+        // Windows absolute path — convert to file:///C:/... form
+        format!("file:///{}", s.replace('\\', "/"))
+    } else {
+        s.into_owned()
+    }
+}
+
 /// Load a Delta table, optionally at a specific version.
 pub async fn load_delta_table(path: &Path, version: Option<i64>) -> Result<DeltaTable> {
-    let mut builder = DeltaTableBuilder::from_uri(path.to_string_lossy());
+    let mut builder = DeltaTableBuilder::from_uri(path_to_delta_uri(path));
     if let Some(v) = version {
         builder = builder.with_version(v);
     }
@@ -172,7 +189,7 @@ pub async fn read_delta_cdf(
 
 /// Get the commit history of a Delta table.
 pub async fn get_delta_history(path: &Path) -> Result<HistoryResult> {
-    let table = DeltaTableBuilder::from_uri(path.to_string_lossy())
+    let table = DeltaTableBuilder::from_uri(path_to_delta_uri(path))
         .load()
         .await?;
 
@@ -203,7 +220,7 @@ pub async fn get_delta_history(path: &Path) -> Result<HistoryResult> {
 
 /// Get metadata and properties of a Delta table.
 pub async fn get_delta_table_info(path: &Path) -> Result<TableInfoResult> {
-    let table = DeltaTableBuilder::from_uri(path.to_string_lossy())
+    let table = DeltaTableBuilder::from_uri(path_to_delta_uri(path))
         .load()
         .await?;
 

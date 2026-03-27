@@ -80,6 +80,7 @@ export class Sidecar implements vscode.Disposable {
         const stream = this.streaming.get(response.id);
         if (stream) {
           if (response.error) {
+            console.debug(`[delta-viewer] Streaming error id=${response.id}: ${response.error}`);
             this.streaming.delete(response.id);
             if (stream.timer) clearTimeout(stream.timer);
             stream.onError(new SidecarError(response.error, response.code, response.retryable));
@@ -87,10 +88,13 @@ export class Sidecar implements vscode.Disposable {
           }
           const result = response.result!;
           if (result.type === "data_header") {
+            console.debug(`[delta-viewer] Received data_header id=${response.id} rows=${(result as DataHeaderResult).total_rows}`);
             stream.onHeader(result as DataHeaderResult);
           } else if (result.type === "data_chunk") {
+            console.debug(`[delta-viewer] Received data_chunk id=${response.id} chunk_index=${(result as DataChunkResult).chunk_index}`);
             stream.onChunk(result as DataChunkResult);
           } else if (result.type === "data_done") {
+            console.debug(`[delta-viewer] Received data_done id=${response.id}`);
             this.streaming.delete(response.id);
             if (stream.timer) clearTimeout(stream.timer);
             stream.onDone(result as DataDoneResult);
@@ -109,9 +113,13 @@ export class Sidecar implements vscode.Disposable {
           } else if (response.result) {
             entry.resolve(response.result);
           }
+        } else {
+          console.warn(`[delta-viewer] Received response for unknown request id=${response.id}. Active requests: ${Array.from(this.pending.keys()).join(", ") || "none"}`);
         }
-      } catch {
-        // Ignore malformed lines
+      } catch (err) {
+        // Log malformed lines to help debug issues
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[delta-viewer] Failed to parse sidecar response: ${errorMsg}`, { line });
       }
     });
 
@@ -318,6 +326,7 @@ export class Sidecar implements vscode.Disposable {
 
       const request: SidecarRequest = { id, command: "read_delta", params };
       const line = JSON.stringify(request) + "\n";
+      console.debug(`[delta-viewer] Sending request id=${id} read_delta offset=${offset} limit=${limit}`);
       this.process!.stdin!.write(line, (err) => {
         if (err) {
           clearTimeout(timer);
