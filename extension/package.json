@@ -3,7 +3,7 @@
   "displayName": "Delta Viewer",
   "description": "View Delta Lake tables and Parquet files in a tabular webview",
   "version": "0.1.0",
-  "publisher": "delta-viewer",
+  "publisher": "Kvedes",
   "license": "MIT",
   "icon": "icon.png",
   "repository": {
