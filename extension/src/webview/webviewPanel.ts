@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { Sidecar } from "../sidecar";
 import { getWebviewHtml } from "./getHtml";
 import { SidecarError } from "../protocol";
@@ -22,7 +23,7 @@ export class DeltaViewerPanel implements vscode.Disposable {
     private filePath: string,
     private fileType: "parquet" | "delta",
   ) {
-    const title = filePath.split("/").pop() || "Delta Viewer";
+    const title = path.basename(filePath) || "Delta Viewer";
 
     this.panel = vscode.window.createWebviewPanel(
       "deltaViewer",

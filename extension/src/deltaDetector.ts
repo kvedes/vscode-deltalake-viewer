@@ -60,10 +60,10 @@ export class DeltaDetector implements vscode.Disposable, vscode.FileDecorationPr
 
   private onDeltaLogFile(uri: vscode.Uri): void {
     // The Delta table root is two levels up from _delta_log/00000.json
-    const parts = uri.fsPath.split("/");
+    const parts = uri.fsPath.split(path.sep);
     const deltaLogIdx = parts.lastIndexOf("_delta_log");
     if (deltaLogIdx > 0) {
-      const tableRoot = parts.slice(0, deltaLogIdx).join("/");
+      const tableRoot = parts.slice(0, deltaLogIdx).join(path.sep);
       if (!this.knownTables.has(tableRoot)) {
         this.knownTables.add(tableRoot);
         this._onDidChangeFileDecorations.fire(vscode.Uri.file(tableRoot));
