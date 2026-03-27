@@ -15,8 +15,9 @@ View Delta Lake tables and Parquet files as interactive, scrollable tables direc
 
 1. **Open a Parquet file** — double-click any `.parquet` file in the explorer
 2. **Open a Delta table** — run the `Delta Viewer: Open Delta Table` command and select a directory containing `_delta_log/`
-3. **History** — click the History button in the toolbar to browse versions; click a version to time-travel
-4. **Table Info** — click the Info button to view table metadata, protocol versions, and file statistics
+3. **Open a Parquet file in a Delta folder** — double-click any `.parquet` file within a Delta Lake folder to view the full Delta Lake table
+4. **History** — click the History button in the toolbar to browse versions; click a version to time-travel
+5. **Table Info** — click the Info button to view table metadata, protocol versions, and file statistics
 
 ## Commands
 
