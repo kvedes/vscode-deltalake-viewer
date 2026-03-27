@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "publisher": "Kvedes",
   "license": "MIT",
-  "icon": "assets/delta-lake-viewer.png",
+  "icon": "../assets/delta-lake-viewer.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/delta-viewer/delta-viewer"
