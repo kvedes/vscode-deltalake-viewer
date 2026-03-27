@@ -6,11 +6,18 @@ members = [
 ]
 
 [workspace.dependencies]
-arrow = { version = "54", features = ["json"] }
-parquet = { version = "54", features = ["arrow"] }
-deltalake = { version = "0.25", features = ["datafusion"] }
-serde = { version = "1", features = ["derive"] }
+arrow = { version = "54", default-features = false, features = ["json"] }
+parquet = { version = "54", default-features = false, features = ["arrow"] }
+deltalake = { version = "0.25", default-features = false, features = ["datafusion"] }
+serde = { version = "1", default-features = false, features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = ["macros", "io-util", "io-std", "rt", "sync"] }
 thiserror = "2"
-uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+opt-level = "z"        # optimize for size ("s" is slightly faster, "z" is smallest)
+lto = true             # link-time optimization
+codegen-units = 1      # better optimization, smaller binary
+strip = true           # strip symbols
+panic = "abort"        # removes unwinding machinery
+debug = 0
