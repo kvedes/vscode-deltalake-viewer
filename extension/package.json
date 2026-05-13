@@ -8,7 +8,7 @@
   "icon": "assets/delta-lake-viewer.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/delta-viewer/delta-viewer"
+    "url": "https://github.com/kvedes/vscode-deltalake-viewer"
   },
   "engines": {
     "vscode": "^1.85.0"
