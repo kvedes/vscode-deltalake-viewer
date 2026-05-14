@@ -351,6 +351,13 @@ tr:hover td {
   font-style: italic;
 }
 
+tr.row-loading td {
+  color: var(--null-color);
+  text-align: center;
+  font-style: italic;
+  opacity: 0.5;
+}
+
 .error-message {
   padding: 20px;
   color: var(--vscode-errorForeground, #f44);

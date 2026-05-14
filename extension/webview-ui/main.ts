@@ -78,10 +78,14 @@ function openSidebarTab(tab: "history" | "info"): void {
   }
 }
 
-let allRows: Record<string, unknown>[] = [];
+// Sparse: `allRows[i]` is `undefined` until the row at absolute offset `i`
+// has been streamed in. Mutated via index assignment as chunks arrive, never
+// via push/splice, so jumping the scrollbar to an unloaded position places
+// the next fetch at the correct row.
+let allRows: (Record<string, unknown> | undefined)[] = [];
 let totalRows = 0;
-let currentLimit = 1000;
 let isLoading = false;
+let pendingFetchPage: number | null = null;
 let currentSchema: ColumnDef[] | null = null;
 let currentVersion: number | undefined;
 let historyLoaded = false;
@@ -90,6 +94,18 @@ let isDelta = false;
 let changesMode = false;
 let isCdfData = false;
 let serverCdfCounts: CdfCounts | null = null;
+
+/// Pagination unit. Must match `DeltaViewerPanel.pageSize` on the host.
+const PAGE_SIZE = 1000;
+/// Number of rows ahead of the viewport to start prefetching the next page.
+const PREFETCH_LOOKAHEAD = 200;
+
+/// Sparse arrays advertise their highest-assigned index as `length` rather
+/// than the number of populated slots. `Object.keys` skips holes, so it
+/// scales with rows-loaded rather than rows-total.
+function countLoadedRows(): number {
+  return Object.keys(allRows).length;
+}
 
 function cdfBreakdown(): string {
   if (!serverCdfCounts) return "";
@@ -112,14 +128,37 @@ function versionStatusLabel(): string {
 const ROW_HEIGHT = 28;
 const BUFFER_ROWS = 20;
 
-function fetchNextPage(): void {
+/// Fire a page request covering the page that contains `rowOffset`. No-op if
+/// a request for that same page is already in flight — but a request for a
+/// *different* page supersedes the previous one (the host cancels in-flight
+/// streams on each new page request), which is what makes scroll-jumps work.
+function ensurePageForRow(rowOffset: number): void {
+  const pageStart = Math.floor(rowOffset / PAGE_SIZE) * PAGE_SIZE;
+  if (pendingFetchPage === pageStart) return;
+  pendingFetchPage = pageStart;
   isLoading = true;
   loadingIndicator.hidden = false;
   if (isCdfData && currentVersion !== undefined) {
-    vscode.postMessage({ type: "load_cdf", version: currentVersion, offset: allRows.length } satisfies WebviewToHostMessage);
+    vscode.postMessage({
+      type: "load_cdf",
+      version: currentVersion,
+      offset: pageStart,
+    } satisfies WebviewToHostMessage);
   } else {
-    vscode.postMessage({ type: "page", offset: allRows.length } satisfies WebviewToHostMessage);
+    vscode.postMessage({
+      type: "page",
+      offset: pageStart,
+    } satisfies WebviewToHostMessage);
   }
+}
+
+/// Scan a row-index range for the first slot whose row hasn't been streamed
+/// in yet. Returns -1 if every slot is populated.
+function firstMissingIn(start: number, end: number): number {
+  for (let i = start; i < end; i++) {
+    if (allRows[i] === undefined) return i;
+  }
+  return -1;
 }
 
 // Virtual scroll
@@ -131,9 +170,10 @@ function updateVirtualScroll(): void {
 
   const firstVisible = Math.floor(scrollTop / ROW_HEIGHT);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT);
+  const lastVisible = Math.min(totalRows, firstVisible + visibleCount);
 
   const renderStart = Math.max(0, firstVisible - BUFFER_ROWS);
-  const renderEnd = Math.min(allRows.length, firstVisible + visibleCount + BUFFER_ROWS);
+  const renderEnd = Math.min(totalRows, firstVisible + visibleCount + BUFFER_ROWS);
 
   bodyTable.style.transform = `translateY(${renderStart * ROW_HEIGHT}px)`;
 
@@ -143,6 +183,19 @@ function updateVirtualScroll(): void {
     const row = allRows[i];
     const tr = document.createElement("tr");
     tr.style.height = `${ROW_HEIGHT}px`;
+
+    if (row === undefined) {
+      // Row hasn't been streamed in yet — render a placeholder spanning all
+      // columns so the row keeps its slot in the scroll area.
+      tr.classList.add("row-loading");
+      const td = document.createElement("td");
+      td.colSpan = currentSchema!.length || 1;
+      td.textContent = "…";
+      tr.appendChild(td);
+      bodyRows.appendChild(tr);
+      continue;
+    }
+
     if (isCdfData) {
       const changeType = row["_change_type"];
       if (changeType === "insert") tr.classList.add("cdf-insert");
@@ -171,8 +224,21 @@ function updateVirtualScroll(): void {
     bodyRows.appendChild(tr);
   }
 
-  if (renderEnd >= allRows.length - BUFFER_ROWS && allRows.length < totalRows && !isLoading) {
-    fetchNextPage();
+  // Fetch priority, in order:
+  //   1. visible window — what the user is staring at right now
+  //   2. buffer above the viewport — for smooth upward scroll
+  //   3. prefetch below the viewport — so a downward scroll doesn't stall
+  // Without (1) ahead of (2), jumping the scrollbar to row 50_000 would
+  // first fetch the buffer page at row ~49_980, leaving the user looking
+  // at "…" placeholders while the wrong page loads.
+  let target = firstMissingIn(firstVisible, lastVisible);
+  if (target < 0) target = firstMissingIn(renderStart, firstVisible);
+  if (target < 0) {
+    const lookAheadEnd = Math.min(totalRows, lastVisible + PREFETCH_LOOKAHEAD);
+    target = firstMissingIn(lastVisible, lookAheadEnd);
+  }
+  if (target >= 0) {
+    ensurePageForRow(target);
   }
 }
 
@@ -185,12 +251,16 @@ scrollViewport.addEventListener("scroll", () => {
 // Header width sync
 function syncHeaderWidths(): void {
   const headerCells = headerRow.children;
-  const firstRow = bodyRows.querySelector("tr");
-  if (!firstRow) return;
-  const bodyCells = firstRow.children;
+  // Placeholder rows have a single `<td colSpan=N>`, and measuring that
+  // would (a) only update column 0 and (b) blow up column 0 to the full
+  // table width. Skip them — only real data rows give us per-column widths.
+  const dataRow = bodyRows.querySelector("tr:not(.row-loading)") as HTMLElement | null;
+  if (!dataRow) return;
+  const bodyCells = dataRow.children;
+  if (bodyCells.length !== headerCells.length) return;
 
   // Clear forced widths so we measure natural content widths
-  for (let i = 0; i < headerCells.length && i < bodyCells.length; i++) {
+  for (let i = 0; i < headerCells.length; i++) {
     (headerCells[i] as HTMLElement).style.width = "";
     (headerCells[i] as HTMLElement).style.minWidth = "";
     (bodyCells[i] as HTMLElement).style.width = "";
@@ -198,7 +268,7 @@ function syncHeaderWidths(): void {
   }
 
   cachedColWidths = [];
-  for (let i = 0; i < headerCells.length && i < bodyCells.length; i++) {
+  for (let i = 0; i < headerCells.length; i++) {
     const headerWidth = (headerCells[i] as HTMLElement).offsetWidth;
     const bodyWidth = (bodyCells[i] as HTMLElement).offsetWidth;
     const width = Math.max(headerWidth, bodyWidth);
@@ -368,6 +438,8 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
         // Reset state
         allRows = [];
         totalRows = 0;
+        pendingFetchPage = null;
+        isLoading = false;
         currentSchema = null;
 
         if (isCdfData && currentVersion !== undefined) {
@@ -389,7 +461,15 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
     currentVersion = msg.version;
     isCdfData = !!msg.cdf_mode;
     cdfLegend.hidden = !changesMode || activeTab !== "history";
+    // Sync local "what's loading" state to whatever the host just started.
+    // Without this, prefetch logic firing from data_chunk handlers can
+    // re-request the same page that's currently being streamed — the host
+    // cancels and restarts, and we loop forever.
+    pendingFetchPage = Math.floor(msg.offset / PAGE_SIZE) * PAGE_SIZE;
+    isLoading = true;
+    loadingIndicator.hidden = false;
     if (msg.offset === 0) {
+      // Fresh load (or version/CDF switch) — drop any previously loaded rows.
       currentSchema = msg.schema;
       allRows = [];
       serverCdfCounts = msg.cdf_counts ?? null;
@@ -401,20 +481,30 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
   }
 
   if (msg.type === "data_chunk") {
-    allRows.push(...msg.rows);
+    // Place each row at its absolute offset so out-of-order pages (e.g. user
+    // jumped the scrollbar to row 50_000) end up in the right slot.
+    for (let i = 0; i < msg.rows.length; i++) {
+      allRows[msg.offset + i] = msg.rows[i];
+    }
     updateVirtualScroll();
-    statusEl.textContent = `${versionStatusLabel()}Loading... ${allRows.length.toLocaleString()} rows received`;
+    const loadedCount = countLoadedRows();
+    statusEl.textContent = `${versionStatusLabel()}Loading... ${loadedCount.toLocaleString()} rows received`;
     return;
   }
 
   if (msg.type === "data_done") {
     isLoading = false;
+    pendingFetchPage = null;
     loadingIndicator.hidden = true;
-    const loadedLabel = allRows.length < totalRows ? ` (${allRows.length.toLocaleString()} loaded)` : "";
+    const loadedCount = countLoadedRows();
+    const loadedLabel = loadedCount < totalRows ? ` (${loadedCount.toLocaleString()} loaded)` : "";
     const breakdown = isCdfData ? cdfBreakdown() : "";
     statusEl.textContent = `${versionStatusLabel()}${totalRows.toLocaleString()} rows${breakdown}${loadedLabel}`;
     updateHistoryHighlight();
     syncHeaderWidths();
+    // The page that just finished may not be the one the viewport is on
+    // anymore (the user kept scrolling). Re-check and fire the next fetch.
+    updateVirtualScroll();
     return;
   }
 
@@ -447,26 +537,28 @@ window.addEventListener("message", (event: MessageEvent<HostToWebviewMessage>) =
 
 function renderData(data: DataMessage): void {
   totalRows = data.total_rows;
-  currentLimit = data.limit;
   isLoading = false;
+  pendingFetchPage = null;
   loadingIndicator.hidden = true;
   currentVersion = data.version;
 
   if (data.offset === 0) {
     currentSchema = data.schema;
-    allRows = data.rows;
+    allRows = [];
     serverCdfCounts = null;
     renderHeaders();
     scrollViewport.scrollTop = 0;
-  } else {
-    allRows.push(...data.rows);
+  }
+  for (let i = 0; i < data.rows.length; i++) {
+    allRows[data.offset + i] = data.rows[i];
   }
 
   // Set spacer to full virtual height
   scrollSpacer.style.height = `${totalRows * ROW_HEIGHT}px`;
 
   // Update status
-  const loadedLabel = allRows.length < totalRows ? ` (${allRows.length.toLocaleString()} loaded)` : "";
+  const loadedCount = countLoadedRows();
+  const loadedLabel = loadedCount < totalRows ? ` (${loadedCount.toLocaleString()} loaded)` : "";
   const breakdown = isCdfData ? cdfBreakdown() : "";
   statusEl.textContent = `${versionStatusLabel()}${totalRows.toLocaleString()} rows${breakdown}${loadedLabel}`;
 

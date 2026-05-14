@@ -94,6 +94,10 @@ export interface DataChunkMessage {
   type: "data_chunk";
   rows: Record<string, unknown>[];
   chunk_index: number;
+  /// Absolute row offset of the first row in this chunk. Lets the webview
+  /// place rows into a sparse table regardless of which page the host is
+  /// streaming back, which is what makes "scroll-jump to row N" work.
+  offset: number;
 }
 
 export interface DataDoneMessage {

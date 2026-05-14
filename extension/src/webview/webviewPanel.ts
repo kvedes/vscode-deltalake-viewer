@@ -117,9 +117,11 @@ export class DeltaViewerPanel implements vscode.Disposable {
         this.knownTotal = undefined;
       }
 
+      let streamOffset = offset;
       const streamCallbacks = {
         onHeader: (header: import("../protocol").DataHeaderResult) => {
           this.knownTotal = header.total_rows;
+          streamOffset = header.offset;
           this.panel.webview.postMessage({
             type: "data_header",
             schema: header.schema,
@@ -133,7 +135,9 @@ export class DeltaViewerPanel implements vscode.Disposable {
             type: "data_chunk",
             rows: chunk.rows,
             chunk_index: chunk.chunk_index,
+            offset: streamOffset,
           });
+          streamOffset += chunk.rows.length;
         },
         onDone: () => {
           this.panel.webview.postMessage({ type: "data_done" });
@@ -243,10 +247,12 @@ export class DeltaViewerPanel implements vscode.Disposable {
     this.currentVersion = version;
 
     try {
+      let streamOffset = offset;
       const stream = this.sidecar.readCdfStreaming(
         this.filePath, startVersion, endVersion, offset, this.pageSize,
         {
           onHeader: (header: import("../protocol").DataHeaderResult) => {
+            streamOffset = header.offset;
             this.panel.webview.postMessage({
               type: "data_header",
               schema: header.schema,
@@ -262,7 +268,9 @@ export class DeltaViewerPanel implements vscode.Disposable {
               type: "data_chunk",
               rows: chunk.rows,
               chunk_index: chunk.chunk_index,
+              offset: streamOffset,
             });
+            streamOffset += chunk.rows.length;
           },
           onDone: () => {
             this.panel.webview.postMessage({ type: "data_done" });
