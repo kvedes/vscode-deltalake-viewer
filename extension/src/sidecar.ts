@@ -266,7 +266,8 @@ export class Sidecar implements vscode.Disposable {
     offset = 0,
     limit = 1000,
   ): Promise<DataResult> {
-    return this.send("read_parquet", { path: filePath, offset, limit }) as Promise<DataResult>;
+    const result = await this.send("read_parquet", { path: filePath, offset, limit });
+    return expectPayload<DataResult>(result, "data", "read_parquet");
   }
 
   async readDelta(
@@ -283,7 +284,8 @@ export class Sidecar implements vscode.Disposable {
     if (knownTotal !== undefined) {
       params.known_total = knownTotal;
     }
-    return this.send("read_delta", params) as Promise<DataResult>;
+    const result = await this.send("read_delta", params);
+    return expectPayload<DataResult>(result, "data", "read_delta");
   }
 
   readDeltaStreaming(
@@ -448,15 +450,18 @@ export class Sidecar implements vscode.Disposable {
   }
 
   async getSchema(filePath: string): Promise<DataResult> {
-    return this.send("get_schema", { path: filePath }) as Promise<DataResult>;
+    const result = await this.send("get_schema", { path: filePath });
+    return expectPayload<DataResult>(result, "data", "get_schema");
   }
 
   async getHistory(dirPath: string): Promise<HistoryResult> {
-    return this.send("get_history", { path: dirPath }) as Promise<HistoryResult>;
+    const result = await this.send("get_history", { path: dirPath });
+    return expectPayload<HistoryResult>(result, "history", "get_history");
   }
 
   async getTableInfo(dirPath: string): Promise<TableInfoResult> {
-    return this.send("get_table_info", { path: dirPath }) as Promise<TableInfoResult>;
+    const result = await this.send("get_table_info", { path: dirPath });
+    return expectPayload<TableInfoResult>(result, "table_info", "get_table_info");
   }
 
   private rejectAll(err: Error): void {
@@ -492,6 +497,26 @@ export class Sidecar implements vscode.Disposable {
     }
     this.readline?.close();
   }
+}
+
+/**
+ * Narrow a sidecar payload to the expected variant. Throws a `SidecarError` if
+ * the sidecar returns a different `type` than expected — protects callers that
+ * would otherwise receive a payload of the wrong shape via an unchecked cast.
+ */
+function expectPayload<T extends ResultPayload>(
+  payload: ResultPayload & { requestId: string },
+  expected: T["type"],
+  command: string,
+): T {
+  if (payload.type !== expected) {
+    throw new SidecarError(
+      `${command} returned unexpected payload type "${payload.type}" (expected "${expected}")`,
+      "internal",
+      false,
+    );
+  }
+  return payload as unknown as T;
 }
 
 export function findBinary(context: vscode.ExtensionContext): string {

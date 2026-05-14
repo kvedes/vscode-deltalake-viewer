@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { Sidecar } from "./sidecar";
 import { DeltaViewerPanel } from "./webview/webviewPanel";
+import { findDeltaTableRoot } from "./deltaDetector";
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -18,12 +19,12 @@ export function registerCommands(
           if (!uris || uris.length === 0) return;
           uri = uris[0];
         }
-        DeltaViewerPanel.createOrShow(
-          context,
-          sidecar,
-          uri.fsPath,
-          "parquet",
-        );
+        const deltaRoot = await findDeltaTableRoot(uri.fsPath);
+        if (deltaRoot) {
+          DeltaViewerPanel.createOrShow(context, sidecar, deltaRoot, "delta");
+        } else {
+          DeltaViewerPanel.createOrShow(context, sidecar, uri.fsPath, "parquet");
+        }
       },
     ),
   );

@@ -83,17 +83,15 @@ fn array_value_to_json(array: &dyn Array, idx: usize) -> Value {
         }
         DataType::Date32 => {
             let arr = array.as_any().downcast_ref::<Date32Array>().unwrap();
-            Value::String(
-                arr.value_as_date(idx)
-                    .map_or_else(|| "null".to_string(), |d| d.to_string()),
-            )
+            arr.value_as_date(idx)
+                .map(|d| Value::String(d.to_string()))
+                .unwrap_or(Value::Null)
         }
         DataType::Date64 => {
             let arr = array.as_any().downcast_ref::<Date64Array>().unwrap();
-            Value::String(
-                arr.value_as_datetime(idx)
-                    .map_or_else(|| "null".to_string(), |d| d.to_string()),
-            )
+            arr.value_as_datetime(idx)
+                .map(|d| Value::String(d.to_string()))
+                .unwrap_or(Value::Null)
         }
         DataType::Timestamp(_, _) => {
             // Use the display representation which includes timezone handling
@@ -252,5 +250,46 @@ mod tests {
 
         let rows = batches_to_json_rows(&[batch]).unwrap();
         assert_eq!(rows[0]["bin"], Value::String("<3 bytes>".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // Failing tests added to cover bugs documented in /review.md.
+    // -----------------------------------------------------------------------
+
+    /// review.md §1.2 — Date32 values that lie outside chrono's `NaiveDate`
+    /// range fall into the `None` branch of `value_as_date()` and are emitted
+    /// as the literal *string* `"null"`, indistinguishable in the UI from a
+    /// genuine string value of `"null"`. They should serialize as `Value::Null`.
+    #[test]
+    fn bug_1_2_date32_out_of_range_serializes_as_null_not_string() {
+        // i32::MAX days from the UNIX epoch is ~5.9 million years — well
+        // outside chrono's NaiveDate range, so `value_as_date` returns None
+        // for this *non-null* element.
+        let schema = Schema::new(vec![Field::new("d", DataType::Date32, true)]);
+        let arr = Date32Array::from(vec![Some(i32::MAX)]);
+        let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arr)]).unwrap();
+
+        let rows = batches_to_json_rows(&[batch]).unwrap();
+        assert_eq!(
+            rows[0]["d"],
+            Value::Null,
+            "Out-of-range Date32 should serialize as JSON null, not the string \"null\"",
+        );
+    }
+
+    /// review.md §1.2 — Same issue for Date64.
+    #[test]
+    fn bug_1_2_date64_out_of_range_serializes_as_null_not_string() {
+        let schema = Schema::new(vec![Field::new("d", DataType::Date64, true)]);
+        // Date64 is millis since epoch; i64::MAX is far past chrono's range.
+        let arr = Date64Array::from(vec![Some(i64::MAX)]);
+        let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(arr)]).unwrap();
+
+        let rows = batches_to_json_rows(&[batch]).unwrap();
+        assert_eq!(
+            rows[0]["d"],
+            Value::Null,
+            "Out-of-range Date64 should serialize as JSON null, not the string \"null\"",
+        );
     }
 }

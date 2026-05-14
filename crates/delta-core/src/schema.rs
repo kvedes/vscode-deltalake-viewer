@@ -42,7 +42,18 @@ fn format_data_type(dt: &DataType) -> String {
                 .collect();
             format!("Struct<{}>", inner.join(", "))
         }
-        DataType::Map(f, _) => format!("Map<{}>", format_data_type(f.data_type())),
+        DataType::Map(f, _) => {
+            // The Map's child field is a Struct<key, value>; surface those types
+            // directly instead of leaking the wrapping struct.
+            match f.data_type() {
+                DataType::Struct(fields) if fields.len() == 2 => format!(
+                    "Map<{}, {}>",
+                    format_data_type(fields[0].data_type()),
+                    format_data_type(fields[1].data_type()),
+                ),
+                other => format!("Map<{}>", format_data_type(other)),
+            }
+        }
         other => format!("{other}"),
     }
 }
@@ -94,5 +105,32 @@ mod tests {
     fn test_format_data_type_simple() {
         assert_eq!(format_data_type(&DataType::Boolean), "Boolean");
         assert_eq!(format_data_type(&DataType::Int32), "Int32");
+    }
+
+    // -----------------------------------------------------------------------
+    // Failing tests added to cover bugs documented in /review.md.
+    // -----------------------------------------------------------------------
+
+    /// review.md §4.1 — `Map` formatting recurses into the wrapping struct
+    /// rather than rendering `Map<KeyType, ValueType>`. The current output is
+    /// `Map<Struct<keys: Utf8, values: Int64>>`, which is leaky and verbose.
+    #[test]
+    fn bug_4_1_map_format_includes_key_and_value_types() {
+        let entries_struct = DataType::Struct(
+            vec![
+                Field::new("keys", DataType::Utf8, false),
+                Field::new("values", DataType::Int64, true),
+            ]
+            .into(),
+        );
+        let map_type = DataType::Map(
+            Arc::new(Field::new("entries", entries_struct, false)),
+            false,
+        );
+        assert_eq!(
+            format_data_type(&map_type),
+            "Map<Utf8, Int64>",
+            "Map formatting should expose key and value types, not the internal entries struct",
+        );
     }
 }

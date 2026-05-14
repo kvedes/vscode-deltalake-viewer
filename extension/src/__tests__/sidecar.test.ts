@@ -186,4 +186,31 @@ describe("Sidecar", () => {
     const result = await promise;
     expect(result.type).toBe("table_info");
   });
+
+  // -----------------------------------------------------------------------
+  // Failing tests added to cover bugs documented in /review.md.
+  // -----------------------------------------------------------------------
+
+  // review.md §4.7 — `send()` casts the result to the caller-supplied
+  // ResultPayload subtype without checking `result.type`. If the sidecar
+  // returns a different payload variant (protocol drift, mistaken routing,
+  // or an envelope that escaped error handling), the cast hides the
+  // mismatch and downstream consumers silently see an object of the wrong
+  // shape.
+  it("bug_4_7 readParquet should reject when sidecar returns a wrong payload type", async () => {
+    const promise = sidecar.readParquet("/test.parquet");
+
+    // Simulate the sidecar returning a history payload to a read_parquet
+    // request — this should never happen but if it does we want to fail
+    // loudly, not silently hand a HistoryResult-shaped object to a caller
+    // typed as DataResult.
+    lineCallback!(
+      JSON.stringify({
+        id: "1",
+        result: { type: "history", entries: [] },
+      }),
+    );
+
+    await expect(promise).rejects.toThrow(/data|type|mismatch/i);
+  });
 });

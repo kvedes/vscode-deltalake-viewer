@@ -159,11 +159,20 @@ pub async fn read_delta_cdf(
                     cdf_counts.updates += n;
                     total_rows += n;
                 }
+                "update_preimage" => {
+                    // Preimage rows are streamed back to the client and styled
+                    // by the webview, so they must be counted in total_rows so
+                    // the virtual-scroll spacer is sized correctly. They are
+                    // intentionally not added to `cdf_counts.updates` — that
+                    // bucket reports update *operations*, and one update yields
+                    // one preimage + one postimage.
+                    total_rows += n;
+                }
                 "delete" => {
                     cdf_counts.deletes += n;
                     total_rows += n;
                 }
-                _ => {} // update_preimage excluded from total
+                _ => {}
             }
         }
     }
@@ -291,4 +300,79 @@ pub async fn get_delta_table_info(path: &Path) -> Result<TableInfoResult> {
         reader_features,
         writer_features,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // Failing test for the bug documented in /review.md §1.1.
+    // -----------------------------------------------------------------------
+
+    /// review.md §1.1 — `read_delta_cdf` reports `total_rows` that excludes
+    /// `update_preimage` records, yet still streams those rows back in
+    /// `result.rows`. The webview sizes its virtual-scroll spacer from
+    /// `total_rows`, so on any CDF result that contains updates the spacer is
+    /// too short and the bottom rows become unreachable.
+    ///
+    /// Asserts the invariant `total_rows >= rows.len()` on a CDF read that
+    /// includes an update operation. Today the bug breaks this invariant.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bug_1_1_cdf_total_rows_must_be_at_least_rows_emitted() {
+        use arrow::array::Int32Array;
+        use arrow::datatypes::{DataType, Field, Schema};
+        use arrow::record_batch::RecordBatch;
+        use deltalake::datafusion::prelude::{col, lit};
+        use deltalake::operations::DeltaOps;
+        use std::sync::Arc;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path_str = tmp.path().to_string_lossy().to_string();
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("value", DataType::Int32, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3])),
+                Arc::new(Int32Array::from(vec![Some(10), Some(20), Some(30)])),
+            ],
+        )
+        .expect("record batch");
+
+        // v0: create + initial write with CDF enabled
+        let ops = DeltaOps::try_from_uri(&path_str)
+            .await
+            .expect("DeltaOps::try_from_uri");
+        let table = ops
+            .write(vec![batch])
+            .with_configuration([(
+                "delta.enableChangeDataFeed".to_string(),
+                Some("true".to_string()),
+            )])
+            .await
+            .expect("initial write");
+
+        // v1: update id=2 — produces update_preimage + update_postimage rows
+        let (_table, _metrics) = DeltaOps(table)
+            .update()
+            .with_predicate(col("id").eq(lit(2)))
+            .with_update("value", lit(99))
+            .await
+            .expect("update");
+
+        let result = read_delta_cdf(tmp.path(), 0, 1, 0, 1000)
+            .await
+            .expect("read_delta_cdf");
+
+        assert!(
+            result.total_rows >= result.rows.len(),
+            "total_rows ({}) must be >= rows.len() ({}); update_preimage rows are streamed back but not counted in total_rows",
+            result.total_rows,
+            result.rows.len(),
+        );
+    }
 }
